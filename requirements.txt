@@ -1,0 +1,9 @@
+python-dotenv
+openai-agents
+mcp
+fastmcp
+pydantic
+flask
+flask-cors
+markdown
+anthropic

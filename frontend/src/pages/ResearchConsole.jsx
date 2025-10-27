@@ -1,0 +1,217 @@
+import { useState, useEffect } from 'react';
+import { useLocation, useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { ArrowLeft, X, Clock } from 'lucide-react';
+import { Card } from '../components/Card';
+import { Button } from '../components/Button';
+import { ProgressBar } from '../components/ProgressBar';
+import { AgentStatus } from '../components/AgentStatus';
+import { ResearchAPI, createProgressStream } from '../lib/api';
+
+export function ResearchConsole() {
+  const location = useLocation();
+  const navigate = useNavigate();
+  const { symbol, sector, exchange } = location.state || {};
+
+  const [progress, setProgress] = useState(0);
+  const [agents, setAgents] = useState([]);
+  const [elapsed, setElapsed] = useState(0);
+  const [estimated, setEstimated] = useState(0);
+  const [logs, setLogs] = useState([]);
+  const [complete, setComplete] = useState(false);
+  const [result, setResult] = useState(null);
+  const [error, setError] = useState(null);
+
+  const researchType = symbol ? 'stock' : 'sector';
+  const title = symbol ? `${symbol} (${exchange})` : `${sector} Sector`;
+
+  useEffect(() => {
+    // Start research
+    const startResearch = async () => {
+      try {
+        let response;
+        if (researchType === 'stock') {
+          response = await ResearchAPI.researchStock(symbol, exchange);
+        } else {
+          response = await ResearchAPI.researchSector(sector, exchange, 5);
+        }
+
+        if (response.success) {
+          setResult(response);
+          setComplete(true);
+        }
+      } catch (err) {
+        setError(err.message);
+      }
+    };
+
+    startResearch();
+
+    // Setup progress stream
+    const cleanup = createProgressStream(researchType, (update) => {
+      setProgress(update.progress);
+      setAgents(update.agents || []);
+      setElapsed(update.elapsed);
+      setEstimated(update.estimated);
+      if (update.logs) {
+        setLogs((prev) => [...update.logs, ...prev].slice(0, 50));
+      }
+      if (update.complete) {
+        setComplete(true);
+      }
+    });
+
+    return cleanup;
+  }, [symbol, sector, exchange, researchType]);
+
+  useEffect(() => {
+    if (complete && result) {
+      // Navigate to results
+      setTimeout(() => {
+        navigate('/report', {
+          state: {
+            report: result.report,
+            symbol,
+            sector,
+            exchange,
+            type: researchType,
+          },
+        });
+      }, 2000);
+    }
+  }, [complete, result, navigate, symbol, sector, exchange, researchType]);
+
+  const handleCancel = () => {
+    if (window.confirm('Are you sure you want to cancel this research?')) {
+      navigate('/');
+    }
+  };
+
+  const formatTime = (seconds) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  if (error) {
+    return (
+      <div className="min-h-screen bg-bg-primary flex items-center justify-center p-6">
+        <Card className="max-w-md text-center">
+          <div className="text-6xl mb-4">⚠️</div>
+          <h2 className="text-2xl font-bold mb-2">Research Failed</h2>
+          <p className="text-text-secondary mb-6">{error}</p>
+          <Button onClick={() => navigate('/')}>Return to Dashboard</Button>
+        </Card>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen bg-bg-primary">
+      {/* Header */}
+      <header className="border-b border-border bg-bg-secondary/50 backdrop-blur-sm sticky top-0 z-10">
+        <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
+          <div className="flex items-center gap-4">
+            <Button variant="ghost" onClick={() => navigate('/')}>
+              <ArrowLeft size={20} />
+              Back
+            </Button>
+            <div>
+              <h1 className="text-xl font-bold font-mono">{title}</h1>
+              <p className="text-sm text-text-secondary">
+                {researchType === 'stock' ? 'Stock Analysis' : 'Sector Comparison'}
+              </p>
+            </div>
+          </div>
+          <Button variant="danger" size="sm" onClick={handleCancel}>
+            <X size={16} />
+            Cancel
+          </Button>
+        </div>
+      </header>
+
+      {/* Main Content */}
+      <main className="max-w-7xl mx-auto px-6 py-8">
+        {/* Progress Section */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="mb-8"
+        >
+          <Card>
+            <ProgressBar progress={progress} />
+            <div className="flex items-center justify-between mt-4 text-sm">
+              <div className="flex items-center gap-2 text-text-secondary">
+                <Clock size={16} />
+                <span>
+                  Elapsed: <span className="font-mono font-semibold">{formatTime(elapsed)}</span>
+                </span>
+              </div>
+              <div className="text-text-secondary">
+                Estimated: <span className="font-mono font-semibold">{formatTime(estimated)}</span>
+              </div>
+            </div>
+            {complete && (
+              <motion.div
+                initial={{ opacity: 0, scale: 0.9 }}
+                animate={{ opacity: 1, scale: 1 }}
+                className="mt-4 text-center text-success font-semibold"
+              >
+                ✅ Research Complete! Redirecting to report...
+              </motion.div>
+            )}
+          </Card>
+        </motion.div>
+
+        <div className="grid lg:grid-cols-2 gap-8">
+          {/* Agent Activity */}
+          <motion.div
+            initial={{ opacity: 0, x: -20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.1 }}
+          >
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              🤖 Agent Activity
+            </h2>
+            <div className="space-y-3">
+              {agents.map((agent, index) => (
+                <AgentStatus key={agent.name} agent={agent} index={index} />
+              ))}
+            </div>
+          </motion.div>
+
+          {/* Live Feed */}
+          <motion.div
+            initial={{ opacity: 0, x: 20 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ delay: 0.2 }}
+          >
+            <h2 className="text-xl font-bold mb-4 flex items-center gap-2">
+              📡 Live Feed
+            </h2>
+            <Card className="h-[500px] overflow-y-auto font-mono text-sm">
+              <div className="space-y-2">
+                {logs.length === 0 ? (
+                  <div className="text-text-secondary text-center py-8">
+                    Waiting for updates...
+                  </div>
+                ) : (
+                  logs.map((log, i) => (
+                    <motion.div
+                      key={i}
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      className="text-text-secondary"
+                    >
+                      {log}
+                    </motion.div>
+                  ))
+                )}
+              </div>
+            </Card>
+          </motion.div>
+        </div>
+      </main>
+    </div>
+  );
+}
