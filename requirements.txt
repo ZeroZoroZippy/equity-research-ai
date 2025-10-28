@@ -8,3 +8,5 @@ flask-cors
 markdown
 anthropic
 firebase-admin
+gunicorn
+gevent

@@ -53,24 +53,34 @@ def initialize_firebase():
     if firebase_app:
         return
 
-    cred_path = os.getenv('FIREBASE_CREDENTIALS')
-    if not cred_path:
-        # Fallback to bundled service account for local development
-        default_path = os.path.join(os.path.dirname(__file__), 'firebase-service-account.json')
-        if os.path.exists(default_path):
-            cred_path = default_path
-            logger.info("FIREBASE_CREDENTIALS not set; using default credentials at %s", cred_path)
-
     try:
         if firebase_admin._apps:
             firebase_app = firebase_admin.get_app()
         else:
-            if cred_path and os.path.exists(cred_path):
-                cred = credentials.Certificate(cred_path)
-                logger.info("Initialising Firebase using service account at %s", cred_path)
+            # Try JSON string first (for Render/cloud deployment)
+            cred_json = os.getenv('FIREBASE_CREDENTIALS_JSON')
+            if cred_json:
+                import json
+                cred_dict = json.loads(cred_json)
+                cred = credentials.Certificate(cred_dict)
+                logger.info("Initialising Firebase using JSON credentials from environment")
             else:
-                logger.info("Initialising Firebase using application default credentials.")
-                cred = credentials.ApplicationDefault()
+                # Fall back to file path
+                cred_path = os.getenv('FIREBASE_CREDENTIALS')
+                if not cred_path:
+                    # Fallback to bundled service account for local development
+                    default_path = os.path.join(os.path.dirname(__file__), 'firebase-service-account.json')
+                    if os.path.exists(default_path):
+                        cred_path = default_path
+                        logger.info("FIREBASE_CREDENTIALS not set; using default credentials at %s", cred_path)
+
+                if cred_path and os.path.exists(cred_path):
+                    cred = credentials.Certificate(cred_path)
+                    logger.info("Initialising Firebase using service account at %s", cred_path)
+                else:
+                    logger.info("Initialising Firebase using application default credentials.")
+                    cred = credentials.ApplicationDefault()
+
             firebase_app = firebase_admin.initialize_app(cred)
 
         firestore_client = firestore.client()
@@ -674,10 +684,12 @@ def index():
     })
 
 if __name__ == '__main__':
-    logger.info("Starting Equity Research AI API on http://localhost:5001")
+    # Use PORT from environment (for Render) or default to 5001
+    port = int(os.environ.get('PORT', 5001))
+    logger.info("Starting Equity Research AI API on http://0.0.0.0:%d", port)
     app.run(
         host='0.0.0.0',
-        port=5001,
-        debug=True,
+        port=port,
+        debug=os.environ.get('FLASK_ENV') != 'production',
         threaded=True
     )
