@@ -26,6 +26,8 @@ export function ResearchConsole() {
   const title = symbol ? `${symbol} (${exchange})` : `${sector} Sector`;
 
   useEffect(() => {
+    let cleanupFunction = null;
+
     // Start research
     const startResearch = async () => {
       try {
@@ -36,32 +38,47 @@ export function ResearchConsole() {
           response = await ResearchAPI.researchSector(sector, exchange, 5);
         }
 
-        if (response.success) {
-          setResult(response);
-          setComplete(true);
+        if (response.success && response.session_id) {
+          console.log('Research started with session:', response.session_id);
+
+          // Setup progress stream with session ID
+          cleanupFunction = createProgressStream(researchType, response.session_id, (update) => {
+            // Only update the fields that are present in the update
+            if (update.progress !== undefined) {
+              setProgress(update.progress);
+            }
+            if (update.agents !== undefined) {
+              console.log('Setting agents:', update.agents.map(a => `${a.name}: ${a.status}`));
+              setAgents(update.agents);
+            }
+            if (update.elapsed !== undefined) {
+              setElapsed(update.elapsed);
+            }
+            if (update.logs !== undefined) {
+              setLogs(update.logs);
+            }
+            if (update.complete) {
+              setComplete(true);
+              setResult(update.result);
+            }
+            if (update.error) {
+              setError(update.error);
+            }
+          });
         }
       } catch (err) {
+        console.error('Research start error:', err);
         setError(err.message);
       }
     };
 
     startResearch();
 
-    // Setup progress stream
-    const cleanup = createProgressStream(researchType, (update) => {
-      setProgress(update.progress);
-      setAgents(update.agents || []);
-      setElapsed(update.elapsed);
-      setEstimated(update.estimated);
-      if (update.logs) {
-        setLogs((prev) => [...update.logs, ...prev].slice(0, 50));
+    return () => {
+      if (cleanupFunction) {
+        cleanupFunction();
       }
-      if (update.complete) {
-        setComplete(true);
-      }
-    });
-
-    return cleanup;
+    };
   }, [symbol, sector, exchange, researchType]);
 
   useEffect(() => {
@@ -148,7 +165,7 @@ export function ResearchConsole() {
                 </span>
               </div>
               <div className="text-text-secondary">
-                Estimated: <span className="font-mono font-semibold">{formatTime(estimated)}</span>
+                Status: <span className="font-mono font-semibold">{complete ? 'Complete' : 'In Progress'}</span>
               </div>
             </div>
             {complete && (

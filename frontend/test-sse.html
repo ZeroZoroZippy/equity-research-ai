@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>SSE Test</title>
+</head>
+<body>
+    <h1>SSE Connection Test</h1>
+    <button id="startBtn">Start Research</button>
+    <button id="connectBtn" disabled>Connect SSE</button>
+    <div id="status"></div>
+    <div id="messages" style="margin-top: 20px; font-family: monospace; white-space: pre-wrap;"></div>
+
+    <script>
+        let sessionId = null;
+        const statusDiv = document.getElementById('status');
+        const messagesDiv = document.getElementById('messages');
+        const startBtn = document.getElementById('startBtn');
+        const connectBtn = document.getElementById('connectBtn');
+
+        function log(message) {
+            const timestamp = new Date().toLocaleTimeString();
+            messagesDiv.textContent += `[${timestamp}] ${message}\n`;
+            console.log(message);
+        }
+
+        startBtn.addEventListener('click', async () => {
+            log('Starting research...');
+            try {
+                const response = await fetch('/research/stock', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ symbol: 'AAPL', exchange: 'US' })
+                });
+                const data = await response.json();
+                log(`Research started: ${JSON.stringify(data)}`);
+                sessionId = data.session_id;
+                statusDiv.textContent = `Session ID: ${sessionId}`;
+                connectBtn.disabled = false;
+            } catch (error) {
+                log(`Error: ${error.message}`);
+            }
+        });
+
+        connectBtn.addEventListener('click', () => {
+            if (!sessionId) {
+                log('No session ID available');
+                return;
+            }
+
+            const url = `/research/progress/${sessionId}`;
+            log(`Connecting to SSE: ${url}`);
+            
+            const eventSource = new EventSource(url);
+
+            eventSource.onopen = () => {
+                log('✅ SSE connection opened');
+            };
+
+            eventSource.onmessage = (event) => {
+                log(`📡 SSE message: ${event.data}`);
+                try {
+                    const data = JSON.parse(event.data);
+                    log(`   Parsed: ${JSON.stringify(data, null, 2)}`);
+                } catch (e) {
+                    log(`   Parse error: ${e.message}`);
+                }
+            };
+
+            eventSource.onerror = (error) => {
+                log(`❌ SSE error: ${JSON.stringify(error)}`);
+                log(`   ReadyState: ${eventSource.readyState}`);
+            };
+        });
+    </script>
+</body>
+</html>

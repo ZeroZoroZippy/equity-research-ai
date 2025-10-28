@@ -19,7 +19,7 @@ class EquityResearchSystem:
     2. Sector Research - Identify top companies and compare them
     """
 
-    def __init__(self):
+    def __init__(self, progress_queues_ref=None):
         # Yahoo Finance MCP - for stock data
         self.yahoo_server_params = {
             "command": "uvx",
@@ -35,14 +35,32 @@ class EquityResearchSystem:
             }
         }
 
-        # Store callbacks per session to handle multiple concurrent sessions
-        self.session_callbacks = {}
+        # Store reference to progress queues from app.py
+        self.progress_queues_ref = progress_queues_ref
 
-    def _log_status(self, message: str, session_id: str = None):
-        """Log status message and send to callback if available"""
-        print(message)
-        if session_id and session_id in self.session_callbacks:
-            self.session_callbacks[session_id](message)
+    def _log_status(self, message: str, session_id: str = None, agent: str = None):
+        """Log status message and send to progress queue if available"""
+        print(f"[LOG_STATUS] {message}")
+        if session_id and self.progress_queues_ref is not None:
+            try:
+                print(f"[LOG_STATUS] Using progress_queues_ref, session_id={session_id}, exists={session_id in self.progress_queues_ref}")
+                if session_id in self.progress_queues_ref:
+                    update = {
+                        'type': 'progress',
+                        'message': message,
+                        'timestamp': datetime.now().isoformat()
+                    }
+                    if agent:
+                        update['agent'] = agent
+                    print(f"[LOG_STATUS] Putting update in queue: {update}")
+                    self.progress_queues_ref[session_id].put(update)
+                    print(f"[LOG_STATUS] Update queued successfully")
+                else:
+                    print(f"[LOG_STATUS] Session {session_id} not found in progress_queues. Available: {list(self.progress_queues_ref.keys())}")
+            except Exception as e:
+                print(f"[LOG_STATUS] Error sending progress: {e}")
+                import traceback
+                traceback.print_exc()
 
     async def _research_stock_with_servers(
         self,
@@ -80,13 +98,17 @@ class EquityResearchSystem:
         # Create prompts for each analyst
         fundamental_prompt = f"""Analyze {full_symbol} stock from a fundamental perspective.
 
-Use your market data tools to gather:
-- Current stock price, market cap, and key valuation ratios
+Use ONLY the available market data tools. Do NOT attempt to use tools that don't exist.
+
+Gather the following information:
+- Current stock price, market cap, and key valuation ratios (P/E, P/B, etc.)
 - Company profile and business description
 - Financial statements (revenue, profit, cash flow, margins)
 - Balance sheet health (debt levels, equity, cash position)
 - Profitability metrics (ROE, ROA, profit margins)
 - Growth metrics (revenue growth, earnings growth)
+
+If a specific data point is not available through your tools, skip it and work with what you have.
 
 Provide a comprehensive fundamental analysis covering business model, financial health,
 valuation vs peers, growth prospects, and any red flags you identify.
@@ -139,28 +161,48 @@ Current datetime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Stock symbol: {full_symbol}"""
 
         # Run analysts sequentially with status updates
-        self._log_status("Financial Analyst started...", session_id)
-        financial_result = await Runner.run(financial_agent, fundamental_prompt, max_turns=20)
-        financial_analysis = financial_result.final_output
-        self._log_status("Financial Analyst completed", session_id)
+        self._log_status("Financial Analyst started...", session_id, "Financial Analyst")
+        try:
+            financial_result = await Runner.run(financial_agent, fundamental_prompt, max_turns=20)
+            financial_analysis = financial_result.final_output
+            self._log_status("Financial Analyst completed", session_id, "Financial Analyst")
+        except Exception as e:
+            financial_analysis = f"Financial analysis unavailable due to error: {str(e)}"
+            self._log_status(f"Financial Analyst encountered an error: {str(e)}", session_id, "Financial Analyst")
+            print(f"[ERROR] Financial Analyst failed: {e}")
 
-        self._log_status("Technical Analyst started...", session_id)
-        technical_result = await Runner.run(technical_agent, technical_prompt, max_turns=20)
-        technical_analysis = technical_result.final_output
-        self._log_status("Technical Analyst completed", session_id)
+        self._log_status("Technical Analyst started...", session_id, "Technical Analyst")
+        try:
+            technical_result = await Runner.run(technical_agent, technical_prompt, max_turns=20)
+            technical_analysis = technical_result.final_output
+            self._log_status("Technical Analyst completed", session_id, "Technical Analyst")
+        except Exception as e:
+            technical_analysis = f"Technical analysis unavailable due to error: {str(e)}"
+            self._log_status(f"Technical Analyst encountered an error: {str(e)}", session_id, "Technical Analyst")
+            print(f"[ERROR] Technical Analyst failed: {e}")
 
-        self._log_status("News Analyst started...", session_id)
-        news_result = await Runner.run(news_agent, news_prompt, max_turns=20)
-        news_analysis = news_result.final_output
-        self._log_status("News Analyst completed", session_id)
+        self._log_status("News Analyst started...", session_id, "News Analyst")
+        try:
+            news_result = await Runner.run(news_agent, news_prompt, max_turns=20)
+            news_analysis = news_result.final_output
+            self._log_status("News Analyst completed", session_id, "News Analyst")
+        except Exception as e:
+            news_analysis = f"News analysis unavailable due to error: {str(e)}"
+            self._log_status(f"News Analyst encountered an error: {str(e)}", session_id, "News Analyst")
+            print(f"[ERROR] News Analyst failed: {e}")
 
-        self._log_status("Risk Analyst started...", session_id)
-        comparative_result = await Runner.run(comparative_agent, comparative_prompt, max_turns=20)
-        comparative_analysis = comparative_result.final_output
-        self._log_status("Risk Analyst completed", session_id)
+        self._log_status("Risk Analyst started...", session_id, "Risk Analyst")
+        try:
+            comparative_result = await Runner.run(comparative_agent, comparative_prompt, max_turns=20)
+            comparative_analysis = comparative_result.final_output
+            self._log_status("Risk Analyst completed", session_id, "Risk Analyst")
+        except Exception as e:
+            comparative_analysis = f"Comparative analysis unavailable due to error: {str(e)}"
+            self._log_status(f"Risk Analyst encountered an error: {str(e)}", session_id, "Risk Analyst")
+            print(f"[ERROR] Risk Analyst failed: {e}")
 
         # Synthesize into formal report
-        self._log_status("Report Generator started...", session_id)
+        self._log_status("Report Generator started...", session_id, "Report Generator")
         
         report_agent = ReportGenerator.create_agent()
         
@@ -184,10 +226,10 @@ Please synthesize these into a comprehensive investment research report.
         
         report_result = await Runner.run(report_agent, synthesis_prompt, max_turns=3)
         formal_report = report_result.final_output
-        self._log_status("Report Generator completed", session_id)
+        self._log_status("Report Generator completed", session_id, "Report Generator")
 
         # Add the strategic analysis
-        self._log_status("Generating final report...", session_id)
+        self._log_status("Generating final report...", session_id, "Strategic Analyst")
         
         strategic_agent = StrategicAnalyst.create_agent()
         
@@ -210,7 +252,7 @@ Now provide your strategic analysis following your structured format.
         # Combine formal report + strategic take
         final_report = formal_report + "\n\n---\n\n" + strategic_take
 
-        self._log_status("Research completed successfully!", session_id)
+        self._log_status("Research completed successfully!", session_id, "Strategic Analyst")
 
         return final_report
     
@@ -255,10 +297,6 @@ Now provide your strategic analysis following your structured format.
             final_report = await self._research_stock_with_servers(
                 symbol, exchange, yahoo_server, brave_server, session_id
             )
-
-            # Clear callback after research
-            if session_id and session_id in self.session_callbacks:
-                del self.session_callbacks[session_id]
 
             return final_report
     
@@ -432,9 +470,5 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             final_sector_report += f"\n## {ticker} - Detailed Analysis\n\n{report}\n\n---\n\n"
 
         self._log_status(f"SECTOR RESEARCH COMPLETE for {sector}!", session_id)
-
-        # Clear callback after research
-        if session_id and session_id in self.session_callbacks:
-            del self.session_callbacks[session_id]
 
         return final_sector_report
