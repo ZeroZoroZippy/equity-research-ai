@@ -35,19 +35,74 @@ export function ReportViewer() {
 
   // Extract recommendation from report
   const recommendation = useMemo(() => {
-    const content = report || sectionsData.synthesis || sectionsData.executive_summary || '';
-    const upperContent = content.toUpperCase();
+    const strategicText = sectionsData?.strategic || '';
+    const defaultRecommendation = { action: 'HOLD', confidence: 'MODERATE', color: 'warning' };
 
-    if (upperContent.includes('STRONG BUY') || upperContent.includes('STRONGBUY')) {
-      return { action: 'STRONG BUY', confidence: 'HIGH', color: 'success' };
-    } else if (upperContent.includes('BUY') && !upperContent.includes('NOT BUY')) {
-      return { action: 'BUY', confidence: 'MODERATE', color: 'success' };
-    } else if (upperContent.includes('SELL')) {
-      return { action: 'SELL', confidence: 'MODERATE', color: 'danger' };
-    } else if (upperContent.includes('HOLD')) {
-      return { action: 'HOLD', confidence: 'MODERATE', color: 'warning' };
+    const normaliseAction = (action) => action.replace(/\s+/g, ' ').trim().toUpperCase();
+
+    const mapColor = (action) => {
+      if (action.includes('BUY')) return 'success';
+      if (action === 'SELL' || action === 'AVOID') return 'danger';
+      return 'warning';
+    };
+
+    const deriveConfidenceFromConviction = (text) => {
+      const convictionMatch = text.match(/Conviction:\s*(\d+)(?:\s*\/\s*10)?/i);
+      if (!convictionMatch) {
+        return null;
+      }
+      const score = parseInt(convictionMatch[1], 10);
+      if (Number.isNaN(score)) {
+        return null;
+      }
+      if (score >= 8) return 'HIGH';
+      if (score >= 5) return 'MODERATE';
+      return 'LOW';
+    };
+
+    const buildRecommendation = (rawAction, fallbackConfidence, sourceText) => {
+      const action = normaliseAction(rawAction);
+      const color = mapColor(action);
+      const parsedConfidence =
+        deriveConfidenceFromConviction(sourceText || '') || fallbackConfidence || 'MODERATE';
+      return { action, confidence: parsedConfidence, color };
+    };
+
+    // Priority 1: Strategic section explicit recommendation
+    const strategicMatch = strategicText.match(
+      /My recommendation:\s*(Strong\s+Buy|Buy|Hold|Avoid|Sell)/i
+    );
+    if (strategicMatch) {
+      return buildRecommendation(strategicMatch[1], 'MODERATE', strategicText);
     }
-    return { action: 'HOLD', confidence: 'LOW', color: 'warning' };
+
+    // Priority 2: Other explicit recommendation markings
+    const combinedContent = `${strategicText}\n${report || sectionsData?.synthesis || sectionsData?.executive_summary || ''}`;
+    const explicitMatch = combinedContent.match(
+      /(Recommendation|Rating|Call)\s*[:\-]?\s*(Strong\s+Buy|Buy|Hold|Avoid|Sell)/i
+    );
+    if (explicitMatch) {
+      return buildRecommendation(explicitMatch[2], 'MODERATE', combinedContent);
+    }
+
+    const upperContent = combinedContent.toUpperCase();
+    if (upperContent.includes('STRONG BUY') || upperContent.includes('STRONGBUY')) {
+      return buildRecommendation('STRONG BUY', 'HIGH', combinedContent);
+    }
+    if (upperContent.includes('AVOID')) {
+      return buildRecommendation('AVOID', 'LOW', combinedContent);
+    }
+    if (upperContent.includes('SELL')) {
+      return buildRecommendation('SELL', 'MODERATE', combinedContent);
+    }
+    if (upperContent.includes('HOLD')) {
+      return buildRecommendation('HOLD', 'MODERATE', combinedContent);
+    }
+    if (upperContent.includes('BUY')) {
+      return buildRecommendation('BUY', 'MODERATE', combinedContent);
+    }
+
+    return defaultRecommendation;
   }, [report, sectionsData]);
 
   // Extract key metrics from report
@@ -235,7 +290,9 @@ export function ReportViewer() {
 
   const getRecommendationIcon = () => {
     if (recommendation.action.includes('BUY')) return <TrendingUp size={32} />;
-    if (recommendation.action === 'SELL') return <TrendingDown size={32} />;
+    if (recommendation.action === 'SELL' || recommendation.action === 'AVOID') {
+      return <TrendingDown size={32} />;
+    }
     return <Minus size={32} />;
   };
 

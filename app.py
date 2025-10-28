@@ -54,6 +54,13 @@ def initialize_firebase():
         return
 
     cred_path = os.getenv('FIREBASE_CREDENTIALS')
+    if not cred_path:
+        # Fallback to bundled service account for local development
+        default_path = os.path.join(os.path.dirname(__file__), 'firebase-service-account.json')
+        if os.path.exists(default_path):
+            cred_path = default_path
+            logger.info("FIREBASE_CREDENTIALS not set; using default credentials at %s", cred_path)
+
     try:
         if firebase_admin._apps:
             firebase_app = firebase_admin.get_app()

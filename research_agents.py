@@ -268,6 +268,7 @@ Guidelines:
 - Write like you're explaining to a smart friend, not writing a term paper
 
 After the Risk Assessment, you're done. Don't ask questions, don't offer more formats, just deliver the report.
+"""
 
     @staticmethod
     def create_agent() -> Agent:
