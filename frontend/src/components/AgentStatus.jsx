@@ -1,5 +1,5 @@
 import { motion } from 'framer-motion';
-import { Check, Loader2 } from 'lucide-react';
+import { Check, Loader2, X } from 'lucide-react';
 import clsx from 'clsx';
 
 export function AgentStatus({ agent, index }) {
@@ -20,6 +20,13 @@ export function AgentStatus({ agent, index }) {
       borderColor: 'border-accent/50',
       text: 'Active...',
       animate: true,
+    },
+    error: {
+      icon: X,
+      color: 'text-danger',
+      bgColor: 'bg-danger/5',
+      borderColor: 'border-danger/40',
+      text: 'Error',
     },
     queued: {
       icon: null,
