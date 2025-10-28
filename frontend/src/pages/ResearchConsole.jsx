@@ -34,7 +34,7 @@ export function ResearchConsole() {
 
   useEffect(() => {
     if (!symbol && !sector) {
-      navigate('/');
+      navigate('/dashboard');
     }
   }, [navigate, symbol, sector]);
 
@@ -195,7 +195,7 @@ export function ResearchConsole() {
     }
 
     if (!sessionId) {
-      navigate('/');
+      navigate('/dashboard');
       return;
     }
 
@@ -213,7 +213,7 @@ export function ResearchConsole() {
         symbol,
         sector,
       });
-      navigate('/');
+      navigate('/dashboard');
     } catch (err) {
       console.error('Cancel research error:', err);
       setError(err.message || 'Failed to cancel research');
@@ -235,7 +235,7 @@ export function ResearchConsole() {
           <div className="text-6xl mb-4">⚠️</div>
           <h2 className="text-2xl font-bold mb-2">Research Failed</h2>
           <p className="text-text-secondary mb-6">{error}</p>
-          <Button onClick={() => navigate('/')}>Return to Dashboard</Button>
+          <Button onClick={() => navigate('/dashboard')}>Return to Dashboard</Button>
         </Card>
       </div>
     );
@@ -247,7 +247,7 @@ export function ResearchConsole() {
       <header className="border-b border-border bg-bg-secondary/50 backdrop-blur-sm sticky top-0 z-10">
         <div className="max-w-7xl mx-auto px-6 py-4 flex items-center justify-between">
           <div className="flex items-center gap-4">
-            <Button variant="ghost" onClick={() => navigate('/')}>
+            <Button variant="ghost" onClick={() => navigate('/dashboard')}>
               <ArrowLeft size={20} />
               Back
             </Button>

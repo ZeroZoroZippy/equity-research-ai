@@ -223,7 +223,7 @@ export function ReportViewer() {
   };
 
   if (!report) {
-    navigate('/');
+    navigate('/dashboard');
     return null;
   }
 
@@ -267,7 +267,7 @@ export function ReportViewer() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 py-3 sm:py-4">
           <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
             <div className="flex items-center gap-3 sm:gap-4">
-              <Button variant="ghost" size="sm" onClick={() => navigate('/')}>
+              <Button variant="ghost" size="sm" onClick={() => navigate('/dashboard')}>
                 <ArrowLeft size={18} />
                 <span className="hidden sm:inline">Dashboard</span>
               </Button>

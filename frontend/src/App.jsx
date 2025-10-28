@@ -4,6 +4,7 @@ import { ResearchConsole } from './pages/ResearchConsole';
 import { ReportViewer } from './pages/ReportViewer';
 import { SectorComparison } from './pages/SectorComparison';
 import { Login } from './pages/Login';
+import { Landing } from './pages/Landing';
 import { AuthProvider } from './context/AuthContext';
 import { ProtectedRoute } from './components/ProtectedRoute';
 
@@ -13,8 +14,9 @@ function App() {
       <Router>
         <Routes>
           <Route path="/login" element={<Login />} />
+          <Route path="/" element={<Landing />} />
           <Route
-            path="/"
+            path="/dashboard"
             element={(
               <ProtectedRoute>
                 <Dashboard />

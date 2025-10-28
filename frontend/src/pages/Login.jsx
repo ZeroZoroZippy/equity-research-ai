@@ -6,20 +6,24 @@ import { Card } from '../components/Card';
 import { useAuth } from '../context/AuthContext';
 import { trackEvent } from '../lib/firebase';
 
-export function Login() {
+export function Login({ onSuccess, onCancel }) {
   const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  const redirectPath = location.state?.from?.pathname || '/';
+  const redirectPath = location.state?.from?.pathname || '/dashboard';
 
   useEffect(() => {
     if (user) {
-      navigate(redirectPath, { replace: true });
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        navigate(redirectPath, { replace: true });
+      }
     }
-  }, [user, navigate, redirectPath]);
+  }, [user, navigate, redirectPath, onSuccess]);
 
   const handleLogin = async () => {
     setLoading(true);
@@ -27,6 +31,11 @@ export function Login() {
     try {
       await login();
       trackEvent('login_requested', { provider: 'google' });
+      if (onSuccess) {
+        onSuccess();
+      } else {
+        navigate(redirectPath, { replace: true });
+      }
     } catch (err) {
       setError(err.message || 'Authentication failed');
       trackEvent('login_failed', { message: err.message });
@@ -55,6 +64,16 @@ export function Login() {
             <span className="text-xl">🔐</span>
             {loading ? 'Signing in...' : 'Continue with Google'}
           </Button>
+          {onCancel && (
+            <Button
+              variant="ghost"
+              className="w-full mt-3"
+              onClick={onCancel}
+              disabled={loading}
+            >
+              Cancel
+            </Button>
+          )}
           {error && (
             <div className="mt-4 text-sm text-danger bg-danger/10 px-4 py-2 rounded">
               {error}
