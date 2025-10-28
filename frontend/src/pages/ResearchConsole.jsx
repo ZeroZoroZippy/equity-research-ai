@@ -25,6 +25,9 @@ export function ResearchConsole() {
   const [error, setError] = useState(null);
   const [authToken, setAuthToken] = useState(null);
   const [tokenReady, setTokenReady] = useState(false);
+  const [sessionId, setSessionId] = useState(null);
+  const [cancelled, setCancelled] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const researchType = symbol ? 'stock' : 'sector';
   const title = symbol ? `${symbol} (${exchange})` : `${sector} Sector`;
@@ -73,6 +76,15 @@ export function ResearchConsole() {
 
     const startResearch = async () => {
       try {
+        setSessionId(null);
+        setCancelled(false);
+        setComplete(false);
+        setResult(null);
+        setProgress(0);
+        setAgents([]);
+        setLogs([]);
+        setError(null);
+        setElapsed(0);
         let response;
         if (researchType === 'stock') {
           response = await ResearchAPI.researchStock({ symbol, exchange, token: authToken });
@@ -82,6 +94,8 @@ export function ResearchConsole() {
 
         if (response.success && response.session_id) {
           console.log('Research started with session:', response.session_id);
+          setSessionId(response.session_id);
+          setCancelled(false);
           trackEvent('research_session_started', {
             type: researchType,
             session_id: response.session_id,
@@ -116,6 +130,11 @@ export function ResearchConsole() {
                   sector,
                 });
               }
+              if (update.cancelled) {
+                setCancelled(true);
+                setComplete(false);
+                setResult(null);
+              }
               if (update.error) {
                 setError(update.error);
                 trackEvent('research_session_failed', {
@@ -149,7 +168,7 @@ export function ResearchConsole() {
   }, [symbol, sector, exchange, researchType, authToken, tokenReady]);
 
   useEffect(() => {
-    if (complete && result) {
+    if (!cancelled && complete && result) {
       // Navigate to results
       setTimeout(() => {
         navigate('/report', {
@@ -168,11 +187,38 @@ export function ResearchConsole() {
         });
       }, 2000);
     }
-  }, [complete, result, navigate, symbol, sector, exchange, researchType]);
+  }, [complete, result, navigate, symbol, sector, exchange, researchType, cancelled]);
 
-  const handleCancel = () => {
-    if (window.confirm('Are you sure you want to cancel this research?')) {
+  const handleCancel = async () => {
+    if (!window.confirm('Are you sure you want to cancel this research?')) {
+      return;
+    }
+
+    if (!sessionId) {
       navigate('/');
+      return;
+    }
+
+    try {
+      setCancelling(true);
+      const token = await getIdToken();
+      const response = await ResearchAPI.cancelResearch({ sessionId, token });
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to cancel research');
+      }
+      setCancelled(true);
+      trackEvent('research_session_cancelled', {
+        type: researchType,
+        session_id: sessionId,
+        symbol,
+        sector,
+      });
+      navigate('/');
+    } catch (err) {
+      console.error('Cancel research error:', err);
+      setError(err.message || 'Failed to cancel research');
+    } finally {
+      setCancelling(false);
     }
   };
 
@@ -212,9 +258,9 @@ export function ResearchConsole() {
               </p>
             </div>
           </div>
-          <Button variant="danger" size="sm" onClick={handleCancel}>
+          <Button variant="danger" size="sm" onClick={handleCancel} disabled={cancelling}>
             <X size={16} />
-            Cancel
+            {cancelling ? 'Cancelling...' : 'Cancel'}
           </Button>
         </div>
       </header>

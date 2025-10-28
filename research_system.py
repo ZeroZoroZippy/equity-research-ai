@@ -9,6 +9,11 @@ from datetime import datetime
 from dotenv import load_dotenv
 from IPython.display import display, Markdown
 
+
+class ResearchCancelled(Exception):
+    """Raised when a research session has been cancelled by the user."""
+    pass
+
 # Load environment variables
 load_dotenv()
 
@@ -19,7 +24,7 @@ class EquityResearchSystem:
     2. Sector Research - Identify top companies and compare them
     """
 
-    def __init__(self, progress_queues_ref=None):
+    def __init__(self, progress_queues_ref=None, cancel_flags_ref=None):
         # Yahoo Finance MCP - for stock data
         self.yahoo_server_params = {
             "command": "uvx",
@@ -37,6 +42,7 @@ class EquityResearchSystem:
 
         # Store reference to progress queues from app.py
         self.progress_queues_ref = progress_queues_ref
+        self.cancel_flags_ref = cancel_flags_ref
 
     @staticmethod
     def _split_markdown_sections(markdown_text: str):
@@ -103,6 +109,15 @@ class EquityResearchSystem:
                 import traceback
                 traceback.print_exc()
 
+    def _is_cancelled(self, session_id: str = None) -> bool:
+        if session_id is None or self.cancel_flags_ref is None:
+            return False
+        return session_id in self.cancel_flags_ref
+
+    def _throw_if_cancelled(self, session_id: str = None):
+        if self._is_cancelled(session_id):
+            raise ResearchCancelled(f"Session {session_id} cancelled by user")
+
     async def _research_stock_with_servers(
         self,
         symbol: str,
@@ -115,6 +130,7 @@ class EquityResearchSystem:
         Internal helper: Research a stock using EXISTING connected servers.
         This is called by research_sector() to avoid nested server connections.
         """
+        self._throw_if_cancelled(session_id)
         
         # Format symbol for Yahoo Finance
         if exchange == "NSE" or exchange == "INDIA":
@@ -202,6 +218,7 @@ Current datetime: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 Stock symbol: {full_symbol}"""
 
         # Run analysts sequentially with status updates
+        self._throw_if_cancelled(session_id)
         self._log_status("Financial Analyst started...", session_id, "Financial Analyst")
         try:
             financial_result = await Runner.run(financial_agent, fundamental_prompt, max_turns=20)
@@ -212,6 +229,7 @@ Stock symbol: {full_symbol}"""
             self._log_status(f"Financial Analyst encountered an error: {str(e)}", session_id, "Financial Analyst")
             print(f"[ERROR] Financial Analyst failed: {e}")
 
+        self._throw_if_cancelled(session_id)
         self._log_status("Technical Analyst started...", session_id, "Technical Analyst")
         try:
             technical_result = await Runner.run(technical_agent, technical_prompt, max_turns=20)
@@ -222,16 +240,49 @@ Stock symbol: {full_symbol}"""
             self._log_status(f"Technical Analyst encountered an error: {str(e)}", session_id, "Technical Analyst")
             print(f"[ERROR] Technical Analyst failed: {e}")
 
+        self._throw_if_cancelled(session_id)
         self._log_status("News Analyst started...", session_id, "News Analyst")
         try:
-            news_result = await Runner.run(news_agent, news_prompt, max_turns=20)
+            news_result = await Runner.run(news_agent, news_prompt, max_turns=14)
             news_analysis = news_result.final_output
             self._log_status("News Analyst completed", session_id, "News Analyst")
         except Exception as e:
-            news_analysis = f"News analysis unavailable due to error: {str(e)}"
-            self._log_status(f"News Analyst encountered an error: {str(e)}", session_id, "News Analyst")
-            print(f"[ERROR] News Analyst failed: {e}")
+            error_text = str(e)
+            if "Max turns" in error_text:
+                self._log_status(
+                    "News Analyst hit the time limit while gathering fresh coverage; providing limited update.",
+                    session_id,
+                    "News Analyst",
+                )
+                fallback_prompt = f"""
+You attempted to research {full_symbol} for news within the last 30 days but ran out of time.
+Using the partial information you already gathered (even if minimal), write a concise update.
+If you truly found no qualifying articles, clearly state that recent coverage is sparse and note any
+relevant context you discovered along the way. Do NOT perform additional searches.
+"""
+                try:
+                    fallback_agent = NewsAnalyst.create_agent(news_servers)
+                    fallback_result = await Runner.run(fallback_agent, fallback_prompt, max_turns=4)
+                    news_analysis = fallback_result.final_output
+                    self._log_status(
+                        "News Analyst provided a limited recent news summary.",
+                        session_id,
+                        "News Analyst",
+                    )
+                except Exception as fallback_error:
+                    news_analysis = "News coverage in the last 30 days appears sparse; unable to retrieve detailed articles after multiple attempts."
+                    self._log_status(
+                        "News Analyst reported that recent coverage is sparse.",
+                        session_id,
+                        "News Analyst",
+                    )
+                    print(f"[WARN] News Analyst fallback failed: {fallback_error}")
+            else:
+                news_analysis = f"News analysis unavailable due to error: {error_text}"
+                self._log_status(f"News Analyst encountered an error: {error_text}", session_id, "News Analyst")
+                print(f"[ERROR] News Analyst failed: {e}")
 
+        self._throw_if_cancelled(session_id)
         self._log_status("Risk Analyst started...", session_id, "Risk Analyst")
         try:
             comparative_result = await Runner.run(comparative_agent, comparative_prompt, max_turns=20)
@@ -243,6 +294,7 @@ Stock symbol: {full_symbol}"""
             print(f"[ERROR] Risk Analyst failed: {e}")
 
         # Synthesize into formal report
+        self._throw_if_cancelled(session_id)
         self._log_status("Report Generator started...", session_id, "Report Generator")
         
         report_agent = ReportGenerator.create_agent()
@@ -265,6 +317,7 @@ You have received analyses from four specialist analysts on {full_symbol}:
 Please synthesize these into a comprehensive investment research report.
 """
         
+        self._throw_if_cancelled(session_id)
         report_result = await Runner.run(report_agent, synthesis_prompt, max_turns=3)
         formal_report = report_result.final_output
         self._log_status("Report Generator completed", session_id, "Report Generator")
@@ -287,6 +340,7 @@ FULL REPORT:
 Now provide your strategic analysis following your structured format.
 """
         
+        self._throw_if_cancelled(session_id)
         strategic_result = await Runner.run(strategic_agent, strategic_prompt, max_turns=3)
         strategic_take = strategic_result.final_output
         
@@ -346,8 +400,9 @@ Now provide your strategic analysis following your structured format.
         Returns:
             Comprehensive research report with strategic take
         """
-        
+
         self._log_status(f"Starting research on {symbol}...", session_id)
+        self._throw_if_cancelled(session_id)
         
         # Format symbol for Yahoo Finance
         if exchange == "NSE" or exchange == "INDIA":
@@ -370,6 +425,7 @@ Now provide your strategic analysis following your structured format.
             await yahoo_server.connect()
             await brave_server.connect()
             self._log_status("Servers connected!", session_id)
+            self._throw_if_cancelled(session_id)
 
             # Use the helper function
             final_report = await self._research_stock_with_servers(
@@ -397,17 +453,19 @@ Now provide your strategic analysis following your structured format.
 
         num_companies = min(num_companies, 10)
 
-        self._log_status(f"Starting SECTOR research on {sector}...", session_id)
+        self._log_status(f"Starting SECTOR research on {sector}...", session_id, "Sector Analyst")
+        self._throw_if_cancelled(session_id)
 
         # Small delay to ensure clean async state
         await asyncio.sleep(1)
+        self._throw_if_cancelled(session_id)
 
         sector_analysis = ""
         tickers = []
 
         try:
             # STEP 1: Identify top companies (separate connection for search)
-            self._log_status("Step 1: Identifying top companies in sector...", session_id)
+            self._log_status("Step 1: Identifying top companies in sector...", session_id, "Sector Analyst")
 
             async with MCPServerStdio(
                 params=self.brave_server_params,
@@ -435,8 +493,8 @@ Deliver a clear list of {num_companies} companies with accurate ticker symbols."
                 sector_result = await Runner.run(sector_agent, sector_prompt, max_turns=15)
                 sector_analysis = sector_result.final_output
 
-                self._log_status("Top companies identified!", session_id)
-                self._log_status(f"Found companies: {sector_analysis[:200]}...", session_id)
+                self._log_status("Sector Analyst completed Step 1: Top companies identified!", session_id, "Sector Analyst")
+                self._log_status(f"Found companies: {sector_analysis[:200]}...", session_id, "Sector Analyst")
 
         except Exception as e:
             self._log_status(f"Error in sector identification: {e}", session_id)
@@ -451,10 +509,10 @@ Deliver a clear list of {num_companies} companies with accurate ticker symbols."
             return sector_analysis
 
         tickers = tickers[:num_companies]
-        self._log_status(f"Will analyze: {', '.join(tickers)}", session_id)
+        self._log_status(f"Will analyze: {', '.join(tickers)}", session_id, "Sector Analyst")
 
         # STEP 2: Research all companies using ONE set of connected servers
-        self._log_status(f"Step 2: Researching {len(tickers)} companies...", session_id)
+        self._log_status(f"Step 2: Researching {len(tickers)} companies...", session_id, "Financial Analyst")
         
         company_reports = {}
         
@@ -473,9 +531,11 @@ Deliver a clear list of {num_companies} companies with accurate ticker symbols."
             await yahoo_server.connect()
             await brave_server.connect()
             self._log_status("Servers connected for all company research!", session_id)
+            self._throw_if_cancelled(session_id)
 
             # Now research each company using the SAME connected servers
             for i, ticker in enumerate(tickers, 1):
+                self._throw_if_cancelled(session_id)
                 self._log_status(f"Company {i}/{len(tickers)}: {ticker}", session_id)
 
                 try:
@@ -499,7 +559,8 @@ Deliver a clear list of {num_companies} companies with accurate ticker symbols."
             self._log_status(f"All {len(tickers)} companies researched!", session_id)
 
             # STEP 3: Portfolio Strategist compares (inside server context for clean async scope)
-            self._log_status("Step 3: Portfolio Strategist analyzing...", session_id)
+            self._throw_if_cancelled(session_id)
+            self._log_status("Step 3: Portfolio Strategist analyzing...", session_id, "Portfolio Strategist")
 
             strategist = PortfolioStrategist.create_agent()
 
@@ -531,12 +592,14 @@ Remember to:
 
 Be decisive and opinionated."""
 
+            self._throw_if_cancelled(session_id)
             portfolio_result = await Runner.run(strategist, portfolio_prompt, max_turns=5)
             portfolio_recommendations = portfolio_result.final_output
 
-            self._log_status("Portfolio analysis complete!", session_id)
+            self._log_status("Portfolio analysis complete!", session_id, "Portfolio Strategist")
         
         # Combine everything
+        self._throw_if_cancelled(session_id)
         final_sector_report = f"""# {sector} Sector Research Report
 Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
@@ -556,7 +619,8 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
             report_text = report_bundle.get("full_report") if isinstance(report_bundle, dict) else str(report_bundle)
             final_sector_report += f"\n## {ticker} - Detailed Analysis\n\n{report_text}\n\n---\n\n"
 
-        self._log_status(f"SECTOR RESEARCH COMPLETE for {sector}!", session_id)
+        self._throw_if_cancelled(session_id)
+        self._log_status(f"SECTOR RESEARCH COMPLETE for {sector}!", session_id, "Sector Analyst")
 
         sector_payload = {
             "full_report": final_sector_report,

@@ -22,6 +22,7 @@ export function Dashboard() {
   const [historyEntryLoading, setHistoryEntryLoading] = useState(false);
   const [historyEntries, setHistoryEntries] = useState([]);
   const [historyError, setHistoryError] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const exchanges = [
     { value: 'US', label: 'US Markets (NYSE/NASDAQ)' },
@@ -72,12 +73,16 @@ export function Dashboard() {
     setHistoryOpen(false);
     setHistoryError(null);
     setHistoryEntryLoading(false);
+    setDeletingId(null);
   }, []);
 
   const handleHistorySelect = useCallback(async (entry) => {
     try {
       setHistoryEntryLoading(true);
       setHistoryError(null);
+      if (entry.status !== 'complete') {
+        throw new Error('This research did not finish, so no report is available. Start a new run to generate results.');
+      }
       const token = await getIdToken();
       const response = await ResearchAPI.fetchHistoryEntry({
         token,
@@ -97,6 +102,9 @@ export function Dashboard() {
       handleCloseHistory();
 
       const payload = response.entry || {};
+      if (!payload.report) {
+        throw new Error('Report content is not available for this record.');
+      }
       navigate('/report', {
         state: {
           report: payload.report,
@@ -116,6 +124,40 @@ export function Dashboard() {
       setHistoryEntryLoading(false);
     }
   }, [getIdToken, handleCloseHistory, navigate]);
+
+  const handleDeleteHistory = useCallback(async (entry) => {
+    if (!entry?.session_id) {
+      return;
+    }
+    if (!window.confirm('Delete this research from history? This cannot be undone.')) {
+      return;
+    }
+    try {
+      setDeletingId(entry.session_id);
+      setHistoryError(null);
+      const token = await getIdToken();
+      const response = await ResearchAPI.deleteHistoryEntry({
+        token,
+        sessionId: entry.session_id,
+      });
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to delete history entry');
+      }
+      trackEvent('history_entry_deleted', {
+        session_id: entry.session_id,
+        type: entry.type,
+        symbol: entry.symbol,
+        sector: entry.sector,
+      });
+      setHistoryEntries((prev) =>
+        prev.filter((item) => item.session_id !== entry.session_id)
+      );
+    } catch (err) {
+      setHistoryError(err.message || 'Failed to delete history entry');
+    } finally {
+      setDeletingId(null);
+    }
+  }, [getIdToken]);
 
   const handleStockResearch = useCallback(() => {
     if (!stockSymbol.trim()) return;
@@ -335,7 +377,9 @@ export function Dashboard() {
         error={historyError}
         onSelect={handleHistorySelect}
         onRefresh={loadHistory}
-        busy={historyEntryLoading}
+        busy={historyEntryLoading || Boolean(deletingId)}
+        onDelete={handleDeleteHistory}
+        deletingId={deletingId}
       />
     </div>
   );

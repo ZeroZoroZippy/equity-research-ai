@@ -105,6 +105,44 @@ export class ResearchAPI {
     return response.json();
   }
 
+  static async deleteHistoryEntry({ token, sessionId }) {
+    const response = await fetch(`${API_BASE}/history/${sessionId}`, {
+      method: 'DELETE',
+      headers: buildHeaders(token),
+    });
+
+    if (!response.ok) {
+      let errorPayload = {};
+      try {
+        errorPayload = await response.json();
+      } catch (err) {
+        /* ignore */
+      }
+      return { success: false, error: errorPayload.error || 'Failed to delete history entry' };
+    }
+
+    return response.json();
+  }
+
+  static async cancelResearch({ sessionId, token }) {
+    const response = await fetch(`${API_BASE}/research/cancel/${sessionId}`, {
+      method: 'POST',
+      headers: buildHeaders(token),
+    });
+
+    if (!response.ok) {
+      let errorPayload = {};
+      try {
+        errorPayload = await response.json();
+      } catch (err) {
+        /* ignore */
+      }
+      return { success: false, error: errorPayload.error || 'Failed to cancel research' };
+    }
+
+    return response.json();
+  }
+
   static connectProgressStream(sessionId, token, onUpdate) {
     let url = `${API_BASE}/research/progress/${sessionId}`;
     if (token) {
@@ -175,6 +213,7 @@ const AGENT_CONFIG = {
     { name: 'Sector Analyst', icon: '🔍' },
     { name: 'Financial Analyst', icon: '📊' },
     { name: 'Technical Analyst', icon: '📈' },
+    { name: 'News Analyst', icon: '📰' },
     { name: 'Risk Analyst', icon: '⚠️' },
     { name: 'Report Generator', icon: '📝' },
     { name: 'Portfolio Strategist', icon: '💼' },
@@ -331,6 +370,16 @@ export function createProgressStream({ type, sessionId, token }, onProgress) {
         complete: true,
         result: update,
       });
+    } else if (update.type === 'cancelled') {
+      clearInterval(timerInterval);
+      state.logs = [update.message || 'Research cancelled by user', ...state.logs].slice(0, 50);
+      onProgress({
+        agents: state.agentStatuses,
+        elapsed: Math.floor((Date.now() - startTime) / 1000),
+        logs: state.logs,
+        cancelled: true,
+      });
+      cleanup();
     } else if (update.type === 'error') {
       clearInterval(timerInterval);
       onProgress({

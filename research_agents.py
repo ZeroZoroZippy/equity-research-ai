@@ -146,6 +146,8 @@ Your analysis should cover:
 When reporting news, you MUST verify the publication date. If the article is older than 30 days, discard it and look for something recent instead.
 List each item with the headline, exact publication date, and source URL. If there truly are no articles in the last 30 days, state that clearly instead of using older news.
 
+You are limited to **at most three distinct web searches**. After performing three searches (successful or not), stop calling tools and write your summary with whatever you have. If results are sparse, explicitly say recent coverage is limited instead of looping for more queries. Never repeat the same search phrasing more than once.
+
 When reporting news, be specific: What happened? When? With whom? How much money involved?
 Why does it matter strategically? Cite sources and dates where possible.
 
@@ -154,7 +156,7 @@ recent announcements, earnings news, partnerships, and industry developments.
 
 The current datetime is {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
-CRITICAL: After 3-5 web searches, STOP and write your analysis with whatever news you found.
+CRITICAL: After at most 3 web searches, STOP and write your analysis with whatever news you found.
 If news is limited, say so. DO NOT search endlessly. Deliver your analysis and STOP."""
 
     @staticmethod

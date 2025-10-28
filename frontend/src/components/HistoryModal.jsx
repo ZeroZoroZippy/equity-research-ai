@@ -1,4 +1,4 @@
-import { X } from 'lucide-react';
+import { X, Trash2 } from 'lucide-react';
 import { Card } from './Card';
 import { Button } from './Button';
 
@@ -11,6 +11,8 @@ export function HistoryModal({
   onSelect,
   onRefresh,
   busy = false,
+  onDelete,
+  deletingId = null,
 }) {
   if (!open) {
     return null;
@@ -45,7 +47,7 @@ export function HistoryModal({
         <div className="relative flex-1 overflow-y-auto px-6 py-4 space-y-3">
           {busy && (
             <div className="absolute inset-0 bg-bg-primary/80 backdrop-blur-sm flex items-center justify-center text-text-secondary text-sm font-medium">
-              Loading report…
+              {deletingId ? 'Deleting entry…' : 'Loading report…'}
             </div>
           )}
           {loading && (
@@ -65,9 +67,9 @@ export function HistoryModal({
             <button
               key={entry.session_id}
               onClick={() => onSelect?.(entry)}
-              disabled={busy}
+              disabled={busy || entry.status !== 'complete'}
               className={`w-full text-left border border-border rounded-lg px-4 py-3 transition-all ${
-                busy
+                busy || entry.status !== 'complete'
                   ? 'opacity-60 cursor-not-allowed'
                   : 'hover:border-accent hover:bg-accent/5'
               }`}
@@ -83,13 +85,29 @@ export function HistoryModal({
                         ? `${entry.sector} Sector`
                         : entry.symbol}
                     </div>
-                    <div className="text-xs text-text-secondary">
+                    <div className={`text-xs ${entry.status === 'complete' ? 'text-text-secondary' : entry.status === 'cancelled' ? 'text-warning' : 'text-text-secondary'}`}>
                       {entry.exchange} • {entry.status?.toUpperCase() || 'UNKNOWN'}
                     </div>
                   </div>
                 </div>
-                <div className="text-sm text-text-secondary font-mono">
-                  {entry.completed_at || entry.started_at}
+                <div className="flex items-center gap-3">
+                  <div className="text-sm text-text-secondary font-mono">
+                    {entry.completed_at || entry.started_at}
+                  </div>
+                  {onDelete && (
+                    <button
+                      type="button"
+                      className="p-2 rounded-md text-text-secondary hover:text-danger hover:bg-danger/10 transition-colors"
+                      onClick={(event) => {
+                        event.stopPropagation();
+                        onDelete(entry);
+                      }}
+                      disabled={busy || deletingId === entry.session_id}
+                      aria-label="Delete history entry"
+                    >
+                      <Trash2 size={16} />
+                    </button>
+                  )}
                 </div>
               </div>
             </button>

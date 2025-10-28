@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify, Response, stream_with_context
 from flask_cors import CORS
-from research_system import EquityResearchSystem
+from research_system import EquityResearchSystem, ResearchCancelled
 import asyncio
 from datetime import datetime
 import logging
@@ -37,6 +37,7 @@ CORS(app, resources={
 # Store progress queues for active sessions
 progress_queues = {}
 session_user_map = {}
+session_cancel_flags = set()
 firestore_client = None
 firebase_app = None
 
@@ -104,12 +105,17 @@ def history_collection(uid):
     return firestore_client.collection('users').document(uid).collection('research_history')
 
 
-def record_history_entry(uid, session_id, payload, merge=True):
+def record_history_entry(uid, session_id, payload, merge=True, decoded=None):
     collection = history_collection(uid)
     if collection is None:
         return
     data = {k: v for k, v in payload.items() if v is not None}
     data.setdefault('session_id', session_id)
+    if decoded:
+        if decoded.get('email'):
+            data.setdefault('user_email', decoded.get('email'))
+        if decoded.get('name'):
+            data.setdefault('user_name', decoded.get('name'))
     try:
         doc_ref = collection.document(session_id)
         if merge:
@@ -119,8 +125,36 @@ def record_history_entry(uid, session_id, payload, merge=True):
     except Exception as exc:
         logger.error("Failed to record Firestore history for %s: %s", session_id, exc)
 
+
+def upsert_user_profile(uid, decoded):
+    if not firebase_ready() or not decoded:
+        return
+    profile_data = {
+        'email': decoded.get('email'),
+        'name': decoded.get('name'),
+        'picture': decoded.get('picture'),
+        'last_seen': datetime.now().isoformat(),
+    }
+    sanitized = {k: v for k, v in profile_data.items() if v}
+    if not sanitized:
+        return
+    try:
+        firestore_client.collection('users').document(uid).set(sanitized, merge=True)
+    except Exception as exc:
+        logger.error("Failed to upsert profile for %s: %s", uid, exc)
+
+
+def mark_session_cancelled(session_id):
+    if session_id:
+        session_cancel_flags.add(session_id)
+
+
+def clear_session_cancelled(session_id):
+    if session_id and session_id in session_cancel_flags:
+        session_cancel_flags.discard(session_id)
+
 # Create research system instance with reference to progress_queues
-research_system = EquityResearchSystem(progress_queues_ref=progress_queues)
+research_system = EquityResearchSystem(progress_queues_ref=progress_queues, cancel_flags_ref=session_cancel_flags)
 
 # Initialise Firebase on startup
 initialize_firebase()
@@ -160,6 +194,8 @@ def research_stock():
         if not symbol:
             return jsonify({'error': 'Symbol is required'}), 400
 
+        upsert_user_profile(uid, decoded_token)
+
         session_id = f"stock_{symbol}_{int(time.time())}"
         progress_queues[session_id] = Queue()
         session_user_map[session_id] = uid
@@ -173,7 +209,7 @@ def research_stock():
             'status': 'queued',
             'started_at': started_at,
             'user_id': uid,
-        }, merge=False)
+        }, merge=False, decoded=decoded_token)
 
         logger.info(
             "Starting stock research for %s (%s), session: %s, user: %s",
@@ -193,7 +229,7 @@ def research_stock():
                 record_history_entry(uid, session_id, {
                     'status': 'running',
                     'last_message': f'Research thread started for {symbol}',
-                })
+                }, decoded=decoded_token)
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -211,7 +247,7 @@ def research_stock():
                     'analyses': report_bundle.get('analyses'),
                     'sources': report_bundle.get('sources'),
                     'metadata': report_bundle.get('metadata'),
-                })
+                }, decoded=decoded_token)
 
                 if session_id in progress_queues:
                     progress_queues[session_id].put({
@@ -224,13 +260,26 @@ def research_stock():
                         'symbol': symbol,
                         'exchange': exchange,
                     })
+            except ResearchCancelled:
+                logger.info("Research cancelled for session %s", session_id)
+                record_history_entry(uid, session_id, {
+                    'status': 'cancelled',
+                    'completed_at': datetime.now().isoformat(),
+                }, decoded=decoded_token)
+                if session_id in progress_queues:
+                    progress_queues[session_id].put({
+                        'type': 'cancelled',
+                        'message': 'Research cancelled by user',
+                        'symbol': symbol,
+                        'exchange': exchange,
+                    })
             except Exception as e:
                 logger.error(f"Error in stock research: {str(e)}")
                 record_history_entry(uid, session_id, {
                     'status': 'error',
                     'error': str(e),
                     'completed_at': datetime.now().isoformat(),
-                })
+                }, decoded=decoded_token)
                 if session_id in progress_queues:
                     progress_queues[session_id].put({
                         'type': 'error',
@@ -291,6 +340,8 @@ def research_sector():
         except (ValueError, TypeError):
             num_companies = 5
 
+        upsert_user_profile(uid, decoded_token)
+
         session_id = f"sector_{sector}_{int(time.time())}"
         progress_queues[session_id] = Queue()
         session_user_map[session_id] = uid
@@ -305,7 +356,7 @@ def research_sector():
             'status': 'queued',
             'started_at': started_at,
             'user_id': uid,
-        }, merge=False)
+        }, merge=False, decoded=decoded_token)
 
         logger.info(
             "Starting sector research for %s (%s), %s companies, session: %s, user: %s",
@@ -325,7 +376,7 @@ def research_sector():
                 record_history_entry(uid, session_id, {
                     'status': 'running',
                     'last_message': f'Sector research thread started for {sector}',
-                })
+                }, decoded=decoded_token)
 
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
@@ -342,7 +393,7 @@ def research_sector():
                     'sections': report_bundle.get('sections'),
                     'metadata': report_bundle.get('metadata'),
                     'company_reports': report_bundle.get('company_reports'),
-                })
+                }, decoded=decoded_token)
 
                 if session_id in progress_queues:
                     progress_queues[session_id].put({
@@ -355,13 +406,27 @@ def research_sector():
                         'exchange': exchange,
                         'num_companies': num_companies
                     })
+            except ResearchCancelled:
+                logger.info("Sector research cancelled for session %s", session_id)
+                record_history_entry(uid, session_id, {
+                    'status': 'cancelled',
+                    'completed_at': datetime.now().isoformat(),
+                }, decoded=decoded_token)
+                if session_id in progress_queues:
+                    progress_queues[session_id].put({
+                        'type': 'cancelled',
+                        'message': 'Sector research cancelled by user',
+                        'sector': sector,
+                        'exchange': exchange,
+                        'num_companies': num_companies
+                    })
             except Exception as e:
                 logger.error(f"Error in sector research: {str(e)}")
                 record_history_entry(uid, session_id, {
                     'status': 'error',
                     'error': str(e),
                     'completed_at': datetime.now().isoformat(),
-                })
+                }, decoded=decoded_token)
                 if session_id in progress_queues:
                     progress_queues[session_id].put({
                         'type': 'error',
@@ -427,6 +492,7 @@ def research_progress(session_id):
     def cleanup_session():
         progress_queues.pop(session_id, None)
         session_user_map.pop(session_id, None)
+        clear_session_cancelled(session_id)
 
     def generate():
         if session_id not in progress_queues:
@@ -448,7 +514,7 @@ def research_progress(session_id):
                 yield f"data: {json.dumps(update)}\n\n"
                 
                 # If complete or error, cleanup and exit
-                if update['type'] in ['complete', 'error']:
+                if update['type'] in ['complete', 'error', 'cancelled']:
                     # Cleanup queue after a delay
                     threading.Timer(5.0, cleanup_session).start()
                     break
@@ -472,11 +538,13 @@ def research_progress(session_id):
 def list_history():
     """Return recent research history for authenticated user."""
     try:
-        uid, _ = verify_request_user()
+        uid, decoded = verify_request_user()
     except PermissionError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 401
     except RuntimeError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 500
+
+    upsert_user_profile(uid, decoded)
 
     collection = history_collection(uid)
     if collection is None:
@@ -504,12 +572,13 @@ def list_history():
 def get_history_entry(session_id):
     """Return specific research output for authenticated user."""
     try:
-        uid, _ = verify_request_user()
+        uid, decoded = verify_request_user()
     except PermissionError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 401
     except RuntimeError as exc:
         return jsonify({'success': False, 'error': str(exc)}), 500
 
+    upsert_user_profile(uid, decoded)
     collection = history_collection(uid)
     if collection is None:
         return jsonify({'success': False, 'error': 'History storage not available'}), 500
@@ -525,6 +594,63 @@ def get_history_entry(session_id):
     except Exception as exc:
         logger.error("Failed to load history entry %s for %s: %s", session_id, uid, exc)
         return jsonify({'success': False, 'error': 'Failed to load history entry'}), 500
+
+
+@app.route('/history/<session_id>', methods=['DELETE'])
+def delete_history_entry(session_id):
+    """Delete a research history entry for the authenticated user."""
+    try:
+        uid, _ = verify_request_user()
+    except PermissionError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 401
+    except RuntimeError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+    collection = history_collection(uid)
+    if collection is None:
+        return jsonify({'success': False, 'error': 'History storage not available'}), 500
+
+    try:
+        doc_ref = collection.document(session_id)
+        doc = doc_ref.get()
+        if not doc.exists:
+            return jsonify({'success': False, 'error': 'History entry not found'}), 404
+        doc_ref.delete()
+        return jsonify({'success': True})
+    except Exception as exc:
+        logger.error("Failed to delete history entry %s for %s: %s", session_id, uid, exc)
+        return jsonify({'success': False, 'error': 'Failed to delete history entry'}), 500
+
+
+@app.route('/research/cancel/<session_id>', methods=['POST'])
+def cancel_research(session_id):
+    try:
+        uid, decoded = verify_request_user()
+    except PermissionError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 401
+    except RuntimeError as exc:
+        return jsonify({'success': False, 'error': str(exc)}), 500
+
+    owner = session_user_map.get(session_id)
+    if owner is None:
+        return jsonify({'success': False, 'error': 'Session not found'}), 404
+    if owner != uid:
+        return jsonify({'success': False, 'error': 'Forbidden'}), 403
+
+    mark_session_cancelled(session_id)
+    record_history_entry(uid, session_id, {
+        'status': 'cancelled',
+        'completed_at': datetime.now().isoformat(),
+    }, decoded=decoded)
+
+    queue = progress_queues.get(session_id)
+    if queue is not None:
+        queue.put({
+            'type': 'cancelled',
+            'message': 'Research cancelled by user',
+        })
+
+    return jsonify({'success': True})
 
 @app.route('/')
 def index():
