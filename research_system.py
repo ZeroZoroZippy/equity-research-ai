@@ -5,7 +5,10 @@ from sector_agents import SectorAnalyst, PortfolioStrategist
 import asyncio
 import os
 import re
+import sys
+import shutil
 from datetime import datetime
+from importlib import util as importlib_util
 from dotenv import load_dotenv
 
 # Optional IPython import for notebook display (not needed in production)
@@ -34,9 +37,23 @@ class EquityResearchSystem:
 
     def __init__(self, progress_queues_ref=None, cancel_flags_ref=None):
         # Yahoo Finance MCP - for stock data
+        yahoo_module_available = importlib_util.find_spec("mcp_yahoo_finance") is not None
+        if yahoo_module_available:
+            yahoo_command = sys.executable
+            yahoo_args = ["-m", "mcp_yahoo_finance"]
+        else:
+            uvx_path = shutil.which("uvx")
+            if not uvx_path:
+                raise RuntimeError(
+                    "mcp_yahoo_finance package is not installed and 'uvx' command is unavailable. "
+                    "Install mcp-yahoo-finance (preferred) or add uvx to PATH."
+                )
+            yahoo_command = uvx_path
+            yahoo_args = ["mcp-yahoo-finance"]
+
         self.yahoo_server_params = {
-            "command": "uvx",
-            "args": ["mcp-yahoo-finance"]
+            "command": yahoo_command,
+            "args": yahoo_args
         }
 
         # Brave Search MCP - for news search

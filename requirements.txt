@@ -10,3 +10,4 @@ anthropic
 firebase-admin
 gunicorn
 gevent
+mcp-yahoo-finance
