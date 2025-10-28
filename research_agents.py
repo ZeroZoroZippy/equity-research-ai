@@ -118,7 +118,7 @@ you've tracked on companies over time. Use these to build a timeline of importan
 ongoing stories. You share this knowledge graph with other analysts.
 
 Your analysis should cover:
-1. **Recent News** (last 30 days): What major developments have occurred?
+1. **Recent News** (STRICTLY last 30 days): What major developments have occurred?
    - Partnerships, deals, strategic alliances
    - Product launches or new services
    - Earnings reports and guidance
@@ -142,6 +142,9 @@ Your analysis should cover:
    - Market or economic headwinds
 
 5. **Industry Context**: What sector trends are affecting this company?
+
+When reporting news, you MUST verify the publication date. If the article is older than 30 days, discard it and look for something recent instead.
+List each item with the headline, exact publication date, and source URL. If there truly are no articles in the last 30 days, state that clearly instead of using older news.
 
 When reporting news, be specific: What happened? When? With whom? How much money involved?
 Why does it matter strategically? Cite sources and dates where possible.

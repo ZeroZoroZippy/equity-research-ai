@@ -1,5 +1,18 @@
 const API_BASE = '';
 
+const buildHeaders = (token, additional = {}) => {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...additional,
+  };
+
+  if (token) {
+    headers.Authorization = `Bearer ${token}`;
+  }
+
+  return headers;
+};
+
 export class ResearchAPI {
   static async healthCheck() {
     try {
@@ -11,29 +24,30 @@ export class ResearchAPI {
     }
   }
 
-  static async researchStock(symbol, exchange = 'US') {
+  static async researchStock({ symbol, exchange = 'US', token }) {
     const response = await fetch(`${API_BASE}/research/stock`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: buildHeaders(token),
       body: JSON.stringify({ symbol, exchange }),
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to start research');
+      let errorPayload = {};
+      try {
+        errorPayload = await response.json();
+      } catch (err) {
+        /* ignore */
+      }
+      throw new Error(errorPayload.error || 'Failed to start research');
     }
 
     return response.json();
   }
 
-  static async researchSector(sector, exchange = 'US', numCompanies = 5) {
+  static async researchSector({ sector, exchange = 'US', numCompanies = 5, token }) {
     const response = await fetch(`${API_BASE}/research/sector`, {
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
+      headers: buildHeaders(token),
       body: JSON.stringify({
         sector,
         exchange,
@@ -42,15 +56,62 @@ export class ResearchAPI {
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to start sector research');
+      let errorPayload = {};
+      try {
+        errorPayload = await response.json();
+      } catch (err) {
+        /* ignore */
+      }
+      throw new Error(errorPayload.error || 'Failed to start sector research');
     }
 
     return response.json();
   }
 
-  static connectProgressStream(sessionId, onUpdate) {
-    const url = `${API_BASE}/research/progress/${sessionId}`;
+  static async fetchHistory({ token, limit = 10 }) {
+    const query = new URLSearchParams({ limit: String(limit) }).toString();
+    const response = await fetch(`${API_BASE}/history?${query}`, {
+      headers: buildHeaders(token),
+    });
+
+    if (!response.ok) {
+      let errorPayload = {};
+      try {
+        errorPayload = await response.json();
+      } catch (err) {
+        /* ignore */
+      }
+      return { success: false, error: errorPayload.error || 'Failed to fetch history' };
+    }
+
+    return response.json();
+  }
+
+  static async fetchHistoryEntry({ token, sessionId }) {
+    const response = await fetch(`${API_BASE}/history/${sessionId}`, {
+      headers: buildHeaders(token),
+    });
+
+    if (!response.ok) {
+      let errorPayload = {};
+      try {
+        errorPayload = await response.json();
+      } catch (err) {
+        /* ignore */
+      }
+      return { success: false, error: errorPayload.error || 'Failed to fetch history entry' };
+    }
+
+    return response.json();
+  }
+
+  static connectProgressStream(sessionId, token, onUpdate) {
+    let url = `${API_BASE}/research/progress/${sessionId}`;
+    if (token) {
+      const tokenParam = `token=${encodeURIComponent(token)}`;
+      url += url.includes('?') ? `&${tokenParam}` : `?${tokenParam}`;
+    }
+
     console.log('🔌 Connecting to SSE stream for session:', sessionId);
     console.log('🔌 SSE URL:', url);
     console.log('🔌 Full URL:', window.location.origin + url);
@@ -165,10 +226,13 @@ const promoteStatus = (currentStatus = 'queued', nextStatus) => {
   return nextStatus;
 };
 
-export function createProgressStream(type, sessionId, onProgress) {
+export function createProgressStream({ type, sessionId, token }, onProgress) {
   console.log('=== Creating progress stream ===');
   console.log('Type:', type);
   console.log('Session ID:', sessionId);
+  if (token) {
+    console.log('Auth token supplied for SSE connection');
+  }
   
   const agents = AGENT_CONFIG[type] || AGENT_CONFIG.stock;
   let startTime = Date.now();
@@ -200,7 +264,7 @@ export function createProgressStream(type, sessionId, onProgress) {
   console.log('=== SessionID being passed:', sessionId);
   console.log('=== ResearchAPI.connectProgressStream exists?', typeof ResearchAPI.connectProgressStream);
   
-  const cleanup = ResearchAPI.connectProgressStream(sessionId, (update) => {
+  const cleanup = ResearchAPI.connectProgressStream(sessionId, token, (update) => {
     console.log('=== SSE UPDATE RECEIVED ===', update);
 
     if (update.type === 'connected') {

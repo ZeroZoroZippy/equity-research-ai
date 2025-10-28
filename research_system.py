@@ -38,6 +38,47 @@ class EquityResearchSystem:
         # Store reference to progress queues from app.py
         self.progress_queues_ref = progress_queues_ref
 
+    @staticmethod
+    def _split_markdown_sections(markdown_text: str):
+        """Split markdown text into sections keyed by their H2 heading titles."""
+        if not markdown_text:
+            return {}
+        import re
+
+        pattern = re.compile(r'^##\s+(.+)$', re.MULTILINE)
+        sections = {}
+        matches = list(pattern.finditer(markdown_text))
+
+        if not matches:
+            return sections
+
+        for index, match in enumerate(matches):
+            title = match.group(1).strip()
+            start = match.end()
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(markdown_text)
+            content = markdown_text[start:end].strip()
+            sections[title] = content
+
+        return sections
+
+    @staticmethod
+    def _extract_links(markdown_text: str):
+        """Return unique hyperlinks discovered in the provided markdown text."""
+        if not markdown_text:
+            return []
+        import re
+
+        urls = re.findall(r'https?://[^\s)]+', markdown_text)
+        # Preserve order while removing duplicates
+        seen = set()
+        unique_urls = []
+        for url in urls:
+            cleaned = url.rstrip('.,)')
+            if cleaned not in seen:
+                seen.add(cleaned)
+                unique_urls.append(cleaned)
+        return unique_urls
+
     def _log_status(self, message: str, session_id: str = None, agent: str = None):
         """Log status message and send to progress queue if available"""
         print(f"[LOG_STATUS] {message}")
@@ -251,10 +292,47 @@ Now provide your strategic analysis following your structured format.
         
         # Combine formal report + strategic take
         final_report = formal_report + "\n\n---\n\n" + strategic_take
+        generated_at = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
+        formal_sections = self._split_markdown_sections(formal_report)
+        news_links = self._extract_links(
+            (news_analysis or '') + '\n' + formal_sections.get('News & Sentiment Summary', '')
+        )
+
+        report_bundle = {
+            "full_report": final_report,
+            "sections": {
+                "executive_summary": formal_sections.get('Executive Summary', '').strip(),
+                "fundamental": formal_sections.get('Fundamental Analysis Summary', '').strip(),
+                "technical": formal_sections.get('Technical Analysis Summary', '').strip(),
+                "news": formal_sections.get('News & Sentiment Summary', '').strip(),
+                "comparison": formal_sections.get('Peer Comparison Summary', '').strip(),
+                "synthesis": formal_sections.get('Synthesis & Investment Considerations', '').strip(),
+                "risk": formal_sections.get('Risk Assessment', '').strip(),
+                "strategic": strategic_take.strip(),
+            },
+            "analyses": {
+                "financial": financial_analysis,
+                "technical": technical_analysis,
+                "news": news_analysis,
+                "comparative": comparative_analysis,
+                "strategic": strategic_take,
+            },
+            "sources": {
+                "news_links": news_links,
+            },
+            "metadata": {
+                "generated_at": generated_at,
+                "symbol": full_symbol,
+                "exchange": exchange,
+                "session_id": session_id,
+                "type": "stock",
+            },
+        }
 
         self._log_status("Research completed successfully!", session_id, "Strategic Analyst")
 
-        return final_report
+        return report_bundle
     
     
     async def research_stock(self, symbol: str, exchange: str = "US", session_id: str = None) -> str:
@@ -402,14 +480,21 @@ Deliver a clear list of {num_companies} companies with accurate ticker symbols."
 
                 try:
                     # Use helper function with existing connected servers
-                    report = await self._research_stock_with_servers(
+                    report_bundle = await self._research_stock_with_servers(
                         ticker, exchange, yahoo_server, brave_server, session_id
                     )
-                    company_reports[ticker] = report
+                    company_reports[ticker] = report_bundle
 
                 except Exception as e:
                     self._log_status(f"Error researching {ticker}: {e}", session_id)
-                    company_reports[ticker] = f"Unable to complete research on {ticker}"
+                    company_reports[ticker] = {
+                        "full_report": f"Unable to complete research on {ticker}",
+                        "metadata": {
+                            "symbol": ticker,
+                            "exchange": exchange,
+                            "error": str(e),
+                        }
+                    }
 
             self._log_status(f"All {len(tickers)} companies researched!", session_id)
 
@@ -428,8 +513,9 @@ Deliver a clear list of {num_companies} companies with accurate ticker symbols."
 
 """
 
-            for ticker, report in company_reports.items():
-                combined_reports += f"\n{'='*60}\n## {ticker} FULL REPORT\n{'='*60}\n\n{report}\n\n"
+            for ticker, report_bundle in company_reports.items():
+                report_text = report_bundle.get("full_report") if isinstance(report_bundle, dict) else str(report_bundle)
+                combined_reports += f"\n{'='*60}\n## {ticker} FULL REPORT\n{'='*60}\n\n{report_text}\n\n"
 
             portfolio_prompt = f"""You have detailed research reports on {len(tickers)} companies in the {sector} sector:
 
@@ -466,9 +552,29 @@ Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}
 
 """
         
-        for ticker, report in company_reports.items():
-            final_sector_report += f"\n## {ticker} - Detailed Analysis\n\n{report}\n\n---\n\n"
+        for ticker, report_bundle in company_reports.items():
+            report_text = report_bundle.get("full_report") if isinstance(report_bundle, dict) else str(report_bundle)
+            final_sector_report += f"\n## {ticker} - Detailed Analysis\n\n{report_text}\n\n---\n\n"
 
         self._log_status(f"SECTOR RESEARCH COMPLETE for {sector}!", session_id)
 
-        return final_sector_report
+        sector_payload = {
+            "full_report": final_sector_report,
+            "sector_summary": sector_analysis,
+            "portfolio_recommendations": portfolio_recommendations,
+            "company_reports": company_reports,
+            "sections": {
+                "sector_summary": sector_analysis,
+                "portfolio": portfolio_recommendations,
+            },
+            "metadata": {
+                "sector": sector,
+                "exchange": exchange,
+                "num_companies": len(tickers),
+                "generated_at": datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                "session_id": session_id,
+                "type": "sector",
+            }
+        }
+
+        return sector_payload

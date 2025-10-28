@@ -7,68 +7,135 @@ import { Button } from '../components/Button';
 import { ProgressBar } from '../components/ProgressBar';
 import { AgentStatus } from '../components/AgentStatus';
 import { ResearchAPI, createProgressStream } from '../lib/api';
+import { useAuth } from '../context/AuthContext';
+import { trackEvent } from '../lib/firebase';
 
 export function ResearchConsole() {
   const location = useLocation();
   const navigate = useNavigate();
   const { symbol, sector, exchange } = location.state || {};
+  const { getIdToken } = useAuth();
 
   const [progress, setProgress] = useState(0);
   const [agents, setAgents] = useState([]);
   const [elapsed, setElapsed] = useState(0);
-  const [estimated, setEstimated] = useState(0);
   const [logs, setLogs] = useState([]);
   const [complete, setComplete] = useState(false);
   const [result, setResult] = useState(null);
   const [error, setError] = useState(null);
+  const [authToken, setAuthToken] = useState(null);
+  const [tokenReady, setTokenReady] = useState(false);
 
   const researchType = symbol ? 'stock' : 'sector';
   const title = symbol ? `${symbol} (${exchange})` : `${sector} Sector`;
 
   useEffect(() => {
+    if (!symbol && !sector) {
+      navigate('/');
+    }
+  }, [navigate, symbol, sector]);
+
+  useEffect(() => {
+    let isMounted = true;
+    const obtainToken = async () => {
+      try {
+        const token = await getIdToken();
+        if (isMounted) {
+          setAuthToken(token);
+        }
+      } catch (err) {
+        if (isMounted) {
+          setError(err.message || 'Authentication failed. Please sign in again.');
+        }
+      } finally {
+        if (isMounted) {
+          setTokenReady(true);
+        }
+      }
+    };
+
+    obtainToken();
+    return () => {
+      isMounted = false;
+    };
+  }, [getIdToken]);
+
+  useEffect(() => {
+    if (!tokenReady) {
+      return;
+    }
+    if (!authToken) {
+      setError('Authentication token unavailable. Please sign in again.');
+      return;
+    }
+
     let cleanupFunction = null;
 
-    // Start research
     const startResearch = async () => {
       try {
         let response;
         if (researchType === 'stock') {
-          response = await ResearchAPI.researchStock(symbol, exchange);
+          response = await ResearchAPI.researchStock({ symbol, exchange, token: authToken });
         } else {
-          response = await ResearchAPI.researchSector(sector, exchange, 5);
+          response = await ResearchAPI.researchSector({ sector, exchange, numCompanies: 5, token: authToken });
         }
 
         if (response.success && response.session_id) {
           console.log('Research started with session:', response.session_id);
-
-          // Setup progress stream with session ID
-          cleanupFunction = createProgressStream(researchType, response.session_id, (update) => {
-            // Only update the fields that are present in the update
-            if (update.progress !== undefined) {
-              setProgress(update.progress);
-            }
-            if (update.agents !== undefined) {
-              console.log('Setting agents:', update.agents.map(a => `${a.name}: ${a.status}`));
-              setAgents(update.agents);
-            }
-            if (update.elapsed !== undefined) {
-              setElapsed(update.elapsed);
-            }
-            if (update.logs !== undefined) {
-              setLogs(update.logs);
-            }
-            if (update.complete) {
-              setComplete(true);
-              setResult(update.result);
-            }
-            if (update.error) {
-              setError(update.error);
-            }
+          trackEvent('research_session_started', {
+            type: researchType,
+            session_id: response.session_id,
+            symbol,
+            sector,
+            exchange,
           });
+
+          cleanupFunction = createProgressStream(
+            { type: researchType, sessionId: response.session_id, token: authToken },
+            (update) => {
+              if (update.progress !== undefined) {
+                setProgress(update.progress);
+              }
+              if (update.agents !== undefined) {
+                console.log('Setting agents:', update.agents.map(a => `${a.name}: ${a.status}`));
+                setAgents(update.agents);
+              }
+              if (update.elapsed !== undefined) {
+                setElapsed(update.elapsed);
+              }
+              if (update.logs !== undefined) {
+                setLogs(update.logs);
+              }
+              if (update.complete) {
+                setComplete(true);
+                setResult(update.result);
+                trackEvent('research_session_completed', {
+                  type: researchType,
+                  session_id: response.session_id,
+                  symbol,
+                  sector,
+                });
+              }
+              if (update.error) {
+                setError(update.error);
+                trackEvent('research_session_failed', {
+                  type: researchType,
+                  session_id: response.session_id,
+                });
+              }
+            }
+          );
         }
       } catch (err) {
         console.error('Research start error:', err);
         setError(err.message);
+        trackEvent('research_session_failed', {
+          type: researchType,
+          symbol,
+          sector,
+          exchange,
+          reason: err.message,
+        });
       }
     };
 
@@ -79,7 +146,7 @@ export function ResearchConsole() {
         cleanupFunction();
       }
     };
-  }, [symbol, sector, exchange, researchType]);
+  }, [symbol, sector, exchange, researchType, authToken, tokenReady]);
 
   useEffect(() => {
     if (complete && result) {
@@ -88,6 +155,11 @@ export function ResearchConsole() {
         navigate('/report', {
           state: {
             report: result.report,
+            sections: result.sections,
+            analyses: result.analyses,
+            sources: result.sources,
+            metadata: result.metadata,
+            companyReports: result.company_reports,
             symbol,
             sector,
             exchange,

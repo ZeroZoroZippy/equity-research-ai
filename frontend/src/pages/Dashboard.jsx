@@ -1,17 +1,27 @@
-import { useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { BarChart3, TrendingUp, Settings } from 'lucide-react';
+import { BarChart3, TrendingUp, Settings, History, LogOut } from 'lucide-react';
 import { Card } from '../components/Card';
 import { Input } from '../components/Input';
 import { Select } from '../components/Select';
 import { Button } from '../components/Button';
+import { HistoryModal } from '../components/HistoryModal';
+import { useAuth } from '../context/AuthContext';
+import { ResearchAPI } from '../lib/api';
+import { trackEvent } from '../lib/firebase';
 
 export function Dashboard() {
   const navigate = useNavigate();
+  const { user, logout, getIdToken } = useAuth();
   const [stockSymbol, setStockSymbol] = useState('');
   const [sector, setSector] = useState('');
   const [exchange, setExchange] = useState('US');
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyEntryLoading, setHistoryEntryLoading] = useState(false);
+  const [historyEntries, setHistoryEntries] = useState([]);
+  const [historyError, setHistoryError] = useState(null);
 
   const exchanges = [
     { value: 'US', label: 'US Markets (NYSE/NASDAQ)' },
@@ -28,15 +38,103 @@ export function Dashboard() {
     'Industrials',
   ];
 
-  const handleStockResearch = () => {
-    if (!stockSymbol.trim()) return;
-    navigate('/research/stock', { state: { symbol: stockSymbol, exchange } });
-  };
+  const userInitial = useMemo(() => {
+    if (!user?.displayName) {
+      return user?.email?.[0]?.toUpperCase() || 'U';
+    }
+    return user.displayName[0]?.toUpperCase() || 'U';
+  }, [user]);
 
-  const handleSectorResearch = () => {
+  const loadHistory = useCallback(async () => {
+    try {
+      setHistoryLoading(true);
+      setHistoryError(null);
+      const token = await getIdToken();
+      const response = await ResearchAPI.fetchHistory({ token });
+      if (!response.success) {
+        throw new Error(response.error || 'Failed to fetch history');
+      }
+      setHistoryEntries(response.history || []);
+    } catch (err) {
+      setHistoryError(err.message || 'Failed to fetch history');
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, [getIdToken]);
+
+  const handleOpenHistory = useCallback(() => {
+    setHistoryOpen(true);
+    trackEvent('history_opened');
+    loadHistory();
+  }, [loadHistory]);
+
+  const handleCloseHistory = useCallback(() => {
+    setHistoryOpen(false);
+    setHistoryError(null);
+    setHistoryEntryLoading(false);
+  }, []);
+
+  const handleHistorySelect = useCallback(async (entry) => {
+    try {
+      setHistoryEntryLoading(true);
+      setHistoryError(null);
+      const token = await getIdToken();
+      const response = await ResearchAPI.fetchHistoryEntry({
+        token,
+        sessionId: entry.session_id,
+      });
+      if (!response.success) {
+        throw new Error(response.error || 'Unable to load history entry');
+      }
+
+      trackEvent('history_entry_opened', {
+        session_id: entry.session_id,
+        type: entry.type,
+        symbol: entry.symbol,
+        sector: entry.sector,
+      });
+
+      handleCloseHistory();
+
+      const payload = response.entry || {};
+      navigate('/report', {
+        state: {
+          report: payload.report,
+          sections: payload.sections,
+          analyses: payload.analyses,
+          sources: payload.sources,
+          metadata: payload.metadata,
+          symbol: payload.symbol || entry.symbol,
+          sector: payload.sector || entry.sector,
+          exchange: payload.exchange || entry.exchange,
+          type: entry.type,
+        },
+      });
+    } catch (err) {
+      setHistoryError(err.message || 'Failed to open history entry');
+    } finally {
+      setHistoryEntryLoading(false);
+    }
+  }, [getIdToken, handleCloseHistory, navigate]);
+
+  const handleStockResearch = useCallback(() => {
+    if (!stockSymbol.trim()) return;
+    const cleanedSymbol = stockSymbol.trim().toUpperCase();
+    trackEvent('research_start', { type: 'stock', symbol: cleanedSymbol, exchange });
+    navigate('/research/stock', { state: { symbol: cleanedSymbol, exchange } });
+  }, [exchange, navigate, stockSymbol]);
+
+  const handleSectorResearch = useCallback(() => {
     if (!sector.trim()) return;
-    navigate('/research/sector', { state: { sector, exchange } });
-  };
+    const cleanedSector = sector.trim();
+    trackEvent('research_start', { type: 'sector', sector: cleanedSector, exchange });
+    navigate('/research/sector', { state: { sector: cleanedSector, exchange } });
+  }, [exchange, navigate, sector]);
+
+  const handleLogout = useCallback(async () => {
+    trackEvent('logout_clicked');
+    await logout();
+  }, [logout]);
 
   return (
     <div className="min-h-screen bg-bg-primary">
@@ -49,9 +147,35 @@ export function Dashboard() {
               EQUITY RESEARCH AI
             </h1>
           </div>
-          <button className="p-2 hover:bg-bg-tertiary rounded-lg transition-colors">
-            <Settings className="text-text-secondary" size={24} />
-          </button>
+          <div className="flex items-center gap-3">
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleOpenHistory}
+              className="flex items-center gap-2"
+            >
+              <History size={16} />
+              History
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={handleLogout}
+              className="flex items-center gap-2"
+            >
+              <LogOut size={16} />
+              Logout
+            </Button>
+            <div className="hidden sm:flex items-center gap-2 px-3 py-2 rounded-lg bg-bg-tertiary">
+              <span className="font-semibold">{user?.displayName || user?.email}</span>
+              <span className="w-8 h-8 rounded-full bg-accent/20 text-accent flex items-center justify-center font-bold">
+                {userInitial}
+              </span>
+            </div>
+            <button className="p-2 hover:bg-bg-tertiary rounded-lg transition-colors">
+              <Settings className="text-text-secondary" size={24} />
+            </button>
+          </div>
         </div>
       </header>
 
@@ -202,6 +326,17 @@ export function Dashboard() {
           </Card>
         </motion.div>
       </main>
+
+      <HistoryModal
+        open={historyOpen}
+        onClose={handleCloseHistory}
+        entries={historyEntries}
+        loading={historyLoading}
+        error={historyError}
+        onSelect={handleHistorySelect}
+        onRefresh={loadHistory}
+        busy={historyEntryLoading}
+      />
     </div>
   );
 }
