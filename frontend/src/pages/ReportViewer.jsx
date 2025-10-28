@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowLeft, Share2, Copy, ChevronDown, ChevronUp,
+  ArrowLeft, Copy, ChevronDown, ChevronUp,
   TrendingUp, TrendingDown, Minus, AlertTriangle, Target,
   DollarSign, Activity, Calendar, ExternalLink
 } from 'lucide-react';
@@ -282,10 +282,6 @@ export function ReportViewer() {
             <div className="flex items-center gap-2 w-full sm:w-auto">
               <Button variant="ghost" size="sm" onClick={handleCopy} className="flex-1 sm:flex-none">
                 {copied ? '✓ Copied' : <><Copy size={14} /> <span className="hidden sm:inline">Copy</span></>}
-              </Button>
-              <Button variant="ghost" size="sm" className="flex-1 sm:flex-none">
-                <Share2 size={14} />
-                <span className="hidden sm:inline">Share</span>
               </Button>
             </div>
           </div>
