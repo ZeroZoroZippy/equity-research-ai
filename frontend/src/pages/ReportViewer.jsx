@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  ArrowLeft, Download, Share2, Copy, ChevronDown, ChevronUp,
+  ArrowLeft, Share2, Copy, ChevronDown, ChevronUp,
   TrendingUp, TrendingDown, Minus, AlertTriangle, Target,
   DollarSign, Activity, Calendar, ExternalLink
 } from 'lucide-react';
@@ -222,6 +222,7 @@ export function ReportViewer() {
     setTimeout(() => setCopied(false), 2000);
   };
 
+
   if (!report) {
     navigate('/dashboard');
     return null;
@@ -285,10 +286,6 @@ export function ReportViewer() {
               <Button variant="ghost" size="sm" className="flex-1 sm:flex-none">
                 <Share2 size={14} />
                 <span className="hidden sm:inline">Share</span>
-              </Button>
-              <Button variant="secondary" size="sm" className="flex-1 sm:flex-none">
-                <Download size={14} />
-                <span className="hidden sm:inline">PDF</span>
               </Button>
             </div>
           </div>
