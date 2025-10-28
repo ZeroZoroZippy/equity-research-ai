@@ -26,7 +26,11 @@ app = Flask(__name__)
 # Enable CORS for frontend with SSE support
 CORS(app, resources={
     r"/*": {
-        "origins": "*",
+        "origins": [
+            "http://localhost:3000",  # Local development
+            "https://*.vercel.app",   # All Vercel deployments
+            "*"  # Allow all for now, tighten later
+        ],
         "methods": ["GET", "POST", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
         "expose_headers": ["Content-Type"],

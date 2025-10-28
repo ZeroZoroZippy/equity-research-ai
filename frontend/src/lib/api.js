@@ -1,4 +1,5 @@
-const API_BASE = '';
+// Use backend URL from environment variable, or empty string for local dev (proxied)
+const API_BASE = import.meta.env.VITE_API_URL || '';
 
 const buildHeaders = (token, additional = {}) => {
   const headers = {
