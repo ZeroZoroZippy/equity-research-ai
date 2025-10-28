@@ -7,7 +7,15 @@ import os
 import re
 from datetime import datetime
 from dotenv import load_dotenv
-from IPython.display import display, Markdown
+
+# Optional IPython import for notebook display (not needed in production)
+try:
+    from IPython.display import display, Markdown
+    IPYTHON_AVAILABLE = True
+except ImportError:
+    IPYTHON_AVAILABLE = False
+    display = None
+    Markdown = None
 
 
 class ResearchCancelled(Exception):
