@@ -6,7 +6,7 @@ import { Card } from '../components/Card';
 import { useAuth } from '../context/AuthContext';
 import { trackEvent } from '../lib/firebase';
 
-export function Login({ onSuccess, onCancel }) {
+export function Login({ onSuccess, onCancel, onClose }) {
   const { user, login } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
@@ -44,15 +44,28 @@ export function Login({ onSuccess, onCancel }) {
     }
   };
 
-  return (
-    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-4">
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        className="w-full max-w-md"
-      >
-        <Card className="p-8 text-center">
-          <h1 className="text-3xl font-bold mb-4">Sign in to Equity Research AI</h1>
+  // When used as a modal (onCancel is provided), don't add full-screen wrapper
+  const isModal = !!onCancel;
+
+  const content = (
+    <motion.div
+      initial={{ opacity: 0, y: 20 }}
+      animate={{ opacity: 1, y: 0 }}
+      className="w-full max-w-md"
+    >
+      <Card className="p-8 text-center shadow-xl relative">
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="absolute top-6 right-6 text-text-secondary hover:text-text-primary transition-colors duration-200 text-2xl w-10 h-10 flex items-center justify-center rounded-full hover:bg-bg-secondary/80"
+            aria-label="Close sign-in dialog"
+          >
+            ✕
+          </button>
+        )}
+        <div className="pt-4">
+          <h1 className="text-3xl font-bold mb-4 pr-8">Sign in to Equity Research AI</h1>
           <p className="text-text-secondary mb-8">
             Create your account with Google to access research, save history, and sync analytics.
           </p>
@@ -79,8 +92,16 @@ export function Login({ onSuccess, onCancel }) {
               {error}
             </div>
           )}
-        </Card>
-      </motion.div>
+        </div>
+      </Card>
+    </motion.div>
+  );
+
+  return isModal ? (
+    content
+  ) : (
+    <div className="min-h-screen bg-bg-primary flex items-center justify-center px-4">
+      {content}
     </div>
   );
 }

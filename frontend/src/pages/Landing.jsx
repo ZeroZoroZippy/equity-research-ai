@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Button } from '../components/Button';
+import { Card } from '../components/Card';
 import { useAuth } from '../context/AuthContext';
 import { Login } from './Login';
 
@@ -82,33 +83,32 @@ export function Landing() {
           <>
             <motion.div
               initial={{ opacity: 0 }}
-              animate={{ opacity: 0.6 }}
+              animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              transition={{ duration: 0.2 }}
-              className="fixed inset-0 bg-bg-primary/80 backdrop-blur-sm z-40"
+              transition={{ duration: 0.3, ease: 'easeOut' }}
+              className="fixed inset-0 bg-black/20 backdrop-blur-md z-40"
+              onClick={() => setShowLogin(false)}
             />
             <motion.div
-              initial={{ opacity: 0, scale: 0.96, y: 20 }}
+              initial={{ opacity: 0, scale: 0.9, y: 30 }}
               animate={{ opacity: 1, scale: 1, y: 0 }}
-              exit={{ opacity: 0, scale: 0.96, y: 20 }}
-              transition={{ duration: 0.2 }}
-              className="fixed inset-0 z-50 flex items-center justify-center px-4"
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              transition={{
+                type: 'spring',
+                damping: 25,
+                stiffness: 300,
+                duration: 0.4
+              }}
+              className="fixed inset-0 z-50 flex items-center justify-center px-4 pointer-events-none"
             >
-              <div className="relative w-full max-w-md">
-                <button
-                  type="button"
-                  onClick={() => setShowLogin(false)}
-                  className="absolute -top-10 right-0 text-text-secondary hover:text-text-primary"
-                  aria-label="Close sign-in dialog"
-                >
-                  ✕
-                </button>
+              <div className="relative w-full max-w-md pointer-events-auto">
                 <Login
                   onSuccess={() => {
                     setShowLogin(false);
                     window.location.href = '/dashboard';
                   }}
                   onCancel={() => setShowLogin(false)}
+                  onClose={() => setShowLogin(false)}
                 />
               </div>
             </motion.div>
