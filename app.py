@@ -31,7 +31,7 @@ CORS(app, resources={
             "https://*.vercel.app",   # All Vercel deployments
             "*"  # Allow all for now, tighten later
         ],
-        "methods": ["GET", "POST", "OPTIONS"],
+        "methods": ["GET", "POST", "DELETE", "OPTIONS"],
         "allow_headers": ["Content-Type", "Authorization"],
         "expose_headers": ["Content-Type"],
         "supports_credentials": False
